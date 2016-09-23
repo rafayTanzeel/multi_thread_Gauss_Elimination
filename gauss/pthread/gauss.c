@@ -12,7 +12,7 @@
 #include <math.h>
 #include <assert.h>
 #include <pthread.h>
-
+#include <stdatomic.h>
 
 //#define DEBUG
 
@@ -28,7 +28,7 @@ int nthreads = 1;
 double **matrix, *X, *R;
 
 /* Pre-set solution. */
-
+//_Atomic int gg = ATOMIC_VAR_INIT(0);
 double *X__;
 
 /* Initialize the matirx. */
@@ -62,16 +62,6 @@ void* work_thread (void *lp)
     int task_id = *((int *) lp);
 
     printf("Starting Threading %d\n", task_id);
-//    int begin, end;
-
-//    gettimeofday(&start, 0);
-//    computeGauss(nsize);
-//    gettimeofday(&finish, 0);
-
-    /*get the divided task*/
-//	begin = task_id;
-//	end = (M * (task_id + 1)) / task_num;
-
 
 	int i, j, k;
 	double pivotval;
@@ -83,31 +73,55 @@ void* work_thread (void *lp)
 
 
 	for (i = 0; i < nsize; i++) {//rows is i
+		if(task_id==0){
 
 		getPivot(nsize,i);//Needs to be atomic otherwise all threads getPivot
-		barrier (task_num);
 
 		/* Scale the main row. */
-		pivotval = matrix[i][i];
+		pivotval = matrix[i][i];}
+		barrier (task_num);
 
-		if (pivotval != 1.0) {
-			matrix[i][i] = 1.0;
-			//Paralize this loop
-			for (j = task_id + i + 1; j < nsize; j+=task_id+1) {
-				matrix[i][j] /= pivotval;
+//		if (pivotval != 1.0) {
+//			matrix[i][i] = 1.0;
+//			//Paralize this loop
+//			for (j = task_id + i + 1; j < nsize; j+=task_id+1) {
+//				matrix[i][j] /= pivotval;
+//			}
+//			R[i] /= pivotval;
+//		}
+
+		if(task_id==0){
+			if (pivotval != 1.0) {
+				matrix[i][i] = 1.0;
+				//Paralize this loop
+				for (j = i + 1; j < nsize; j+=1) {
+					matrix[i][j] /= pivotval;
+				}
+				R[i] /= pivotval;
 			}
-			R[i] /= pivotval;
 		}
 
 		/* Factorize the rest of the matrix. */
-		for (j = i + 1; j < nsize; j++) {
-			pivotval = matrix[j][i];
-			matrix[j][i] = 0.0;
-			for (k = task_id + i + 1; k < nsize; k+=task_id+1) {
-				//Paralized this
-				matrix[j][k] -= pivotval * matrix[i][k];
+//		for (j = i + 1; j < nsize; j++) {
+//			pivotval = matrix[j][i];
+//			matrix[j][i] = 0.0;
+//			for (k = task_id + i + 1; k < nsize; k+=task_id+1) {
+//				//Paralized this
+//				matrix[j][k] -= pivotval * matrix[i][k];
+//			}
+//			R[j] -= pivotval * R[i];
+//		}
+
+		if(task_id==0){
+			for (j = i + 1; j < nsize; j++) {
+				pivotval = matrix[j][i];
+				matrix[j][i] = 0.0;
+				for (k = i + 1; k < nsize; k+=1) {
+					//Paralized this
+					matrix[j][k] -= pivotval * matrix[i][k];
+				}
+				R[j] -= pivotval * R[i];
 			}
-			R[j] -= pivotval * R[i];
 		}
 	}
 
@@ -116,6 +130,15 @@ void* work_thread (void *lp)
 	gettimeofday (&finish, NULL);
 	return NULL;
 }
+
+
+//void* threaderFunc(void* arg){
+//	swtich(){
+//
+//
+//
+//	}
+//}
 
 
 int initMatrix(const char *fname)
