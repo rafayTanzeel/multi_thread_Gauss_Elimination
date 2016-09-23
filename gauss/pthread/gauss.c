@@ -34,11 +34,24 @@ double *X__;
 /* Initialize the matirx. */
 
 pthread_mutex_t mut = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutPass = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
-
+int passer=1;
 void getPivot(int nsize, int currow);
 
+
+void passerToggle(int i){
+	pthread_mutex_lock (&mutPass);	//lock
+	if(passer){
+		getPivot(nsize,i);
+		passer=0;
+	}
+	else{
+		passer=1;
+	}
+	pthread_mutex_unlock (&mutPass);	//unlock
+}
 
 void barrier (int expect)
 {
@@ -73,33 +86,31 @@ void* work_thread (void *lp)
 
 
 	for (i = 0; i < nsize; i++) {//rows is i
-		if(task_id==0){
 
-		getPivot(nsize,i);//Needs to be atomic otherwise all threads getPivot
+		passerToggle(i);
 
-		/* Scale the main row. */
-		pivotval = matrix[i][i];}
-		barrier (task_num);
+		pivotval = matrix[i][i];
+//
 
-//		if (pivotval != 1.0) {
-//			matrix[i][i] = 1.0;
-//			//Paralize this loop
-//			for (j = task_id + i + 1; j < nsize; j+=task_id+1) {
-//				matrix[i][j] /= pivotval;
-//			}
-//			R[i] /= pivotval;
-//		}
-
-		if(task_id==0){
-			if (pivotval != 1.0) {
-				matrix[i][i] = 1.0;
-				//Paralize this loop
-				for (j = i + 1; j < nsize; j+=1) {
-					matrix[i][j] /= pivotval;
-				}
-				R[i] /= pivotval;
+		if (pivotval != 1.0) {
+			matrix[i][i] = 1.0;
+			//Paralize this loop
+			for (j = task_id + i + 1; j < nsize; j+=task_num) {
+				matrix[i][j] /= pivotval;
 			}
+			R[i] /= pivotval;
 		}
+
+//		if(task_id==0){
+//			if (pivotval != 1.0) {
+//				matrix[i][i] = 1.0;
+//				//Paralize this loop
+//				for (j = i + 1; j < nsize; j+=1) {
+//					matrix[i][j] /= pivotval;
+//				}
+//				R[i] /= pivotval;
+//			}
+//		}
 
 		/* Factorize the rest of the matrix. */
 //		for (j = i + 1; j < nsize; j++) {
@@ -123,6 +134,7 @@ void* work_thread (void *lp)
 				R[j] -= pivotval * R[i];
 			}
 		}
+		passerToggle(i);
 	}
 
 	barrier (task_num);
