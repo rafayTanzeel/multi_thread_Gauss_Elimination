@@ -14,7 +14,7 @@
 #include <pthread.h>
 
 
-/* #define DEBUG */
+//#define DEBUG
 
 #define SWAP(a,b)       {double tmp; tmp = a; a = b; b = tmp;}
 
@@ -24,6 +24,7 @@
 struct timeval start, finish;
 int task_num = 1;
 int nsize = 0;
+int nthreads = 1;
 double **matrix, *X, *R;
 
 /* Pre-set solution. */
@@ -59,6 +60,8 @@ void barrier (int expect)
 void* work_thread (void *lp)
 {
     int task_id = *((int *) lp);
+
+    printf("Starting Threading %d\n", task_id);
 //    int begin, end;
 
 //    gettimeofday(&start, 0);
@@ -82,14 +85,15 @@ void* work_thread (void *lp)
 	for (i = 0; i < nsize; i++) {//rows is i
 
 		getPivot(nsize,i);//Needs to be atomic otherwise all threads getPivot
+		barrier (task_num);
 
 		/* Scale the main row. */
-		pivotval = matrix[i][i]; //
+		pivotval = matrix[i][i];
 
 		if (pivotval != 1.0) {
 			matrix[i][i] = 1.0;
 			//Paralize this loop
-			for (j = task_id + i + 1; j < nsize; j+=task_id + i + 1) {
+			for (j = task_id + i + 1; j < nsize; j+=task_id+1) {
 				matrix[i][j] /= pivotval;
 			}
 			R[i] /= pivotval;
@@ -99,7 +103,7 @@ void* work_thread (void *lp)
 		for (j = i + 1; j < nsize; j++) {
 			pivotval = matrix[j][i];
 			matrix[j][i] = 0.0;
-			for (k = task_id + i + 1; k < nsize; k+=task_id+i+1) {
+			for (k = task_id + i + 1; k < nsize; k+=task_id+1) {
 				//Paralized this
 				matrix[j][k] -= pivotval * matrix[i][k];
 			}
@@ -108,6 +112,7 @@ void* work_thread (void *lp)
 	}
 
 	barrier (task_num);
+	printf("Ending Threading %d\n", task_id);
 	gettimeofday (&finish, NULL);
 	return NULL;
 }
@@ -115,6 +120,7 @@ void* work_thread (void *lp)
 
 int initMatrix(const char *fname)
 {
+
     FILE *file;
     int l1, l2, l3;
     double d;
@@ -344,4 +350,5 @@ int main(int argc, char *argv[])
 
     return 0;
 }
+
 
