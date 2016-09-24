@@ -29,11 +29,12 @@ double **matrix, *X, *R;
 /* Pre-set solution. */
 double *X__;
 double *PivotRow;
-
+int emptier=1;
 /* Initialize the matirx. */
 
 pthread_mutex_t mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutPass = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutEmpty = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 void barrier (int expect);
@@ -45,6 +46,7 @@ void solveGauss(int nsize);
 int initMatrix(const char *fname);
 void initRHS(int nsize);
 void initResult(int nsize);
+void emptyMatrix(int i, int j);
 
 int main(int argc, char *argv[])
 {
@@ -93,7 +95,6 @@ int main(int argc, char *argv[])
 
 	for (i = 1; i < task_num; i++)
 		pthread_join (tid[i], NULL);
-
 
     solveGauss(nsize);
 
@@ -291,15 +292,14 @@ void computeGauss(int nsize, int task_id)
     int i, j, k;
     double pivotval;
 
-    for (i = 0; i < nsize; i++) {
+    for (i = 0; i < nsize; i++) { //i is rows
 	/* Scale the main row. */
-    	barrier (task_num);
 		getPivotRowElement(nsize, i, task_id);
 		pivotval = PivotRow[i];
 
 		if (pivotval != 1.0) {
 			matrix[i][i] = 1.0;
-			for (j = task_id + i + 1; j < nsize; j+=task_num) {
+			for (j = task_id + i + 1; j < nsize; j+=task_num) { //j is column
 				matrix[i][j] /= pivotval;
 			}
 			if(task_id==0){
@@ -307,35 +307,32 @@ void computeGauss(int nsize, int task_id)
 			}
 		}
 
-
-		barrier (task_num);
-		PivotRow[i] = 1.0;
-
 	/* Factorize the rest of the matrix. */
-//        for (j = i + 1; j < nsize; j++) {
-//        	pivotval = matrix[j][i];
-//            matrix[j][i] = 0.0;
-//
-//            barrier (task_num);
-//
-//            for (k = task_id + i + 1; k < nsize; k+=task_num) {
-//                matrix[j][k] -= pivotval * matrix[i][k];
-//            }
-//            R[j] -= pivotval * R[i];
-//        }
-
-		if(task_id==0){
-			for (j = i + 1; j < nsize; j++) {
-				pivotval = matrix[j][i];
-				matrix[j][i] = 0.0;
-				for (k = i + 1; k < nsize; k+=1) {
-					//Paralized this
-					matrix[j][k] -= pivotval * matrix[i][k];
-				}
-				R[j] -= pivotval * R[i];
-			}
-		}
+        for (j = i + 1; j < nsize; j++) {
+        	barrier (task_num);
+            for (k = task_id + i + 1; k < nsize; k+=task_num) {
+                matrix[j][k] -= matrix[j][i] * matrix[i][k];
+            }
+            if (task_id==0) {
+            	R[j] -= matrix[j][i] * R[i];
+            }
+            emptyMatrix(j,i);
+        }
     }
+}
+
+void emptyMatrix(int i, int j){
+	//lock
+	pthread_mutex_lock (&mutEmpty);
+	if(emptier==task_num){
+		matrix[i][j] = 0.0;
+		emptier=1;
+	}
+	else{
+		emptier++;
+	}
+	pthread_mutex_unlock (&mutEmpty);
+	//unlock
 }
 
 /* Solve the equation. */
