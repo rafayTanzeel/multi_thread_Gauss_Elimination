@@ -39,7 +39,7 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 void barrier (int expect);
 void getPivot(int nsize, int currow);
-void getPivotRowElement(int nsize, int index, int id);
+void getPivotRowElement(int index);
 void computeGauss(int nsize, int task_id);
 void* work_thread (void *lp);
 void solveGauss(int nsize);
@@ -132,10 +132,10 @@ void barrier (int expect)
 }
 
 
-void getPivotRowElement(int npsize, int index, int id){
+void getPivotRowElement(int index){
 	pthread_mutex_lock (&mutPass);
 	if(PivotRow[index]==0.0){
-		getPivot(npsize,index);
+		getPivot(nsize,index);
 		PivotRow[index]=matrix[index][index];
 	}
 	pthread_mutex_unlock (&mutPass);
@@ -146,8 +146,6 @@ void* work_thread (void *lp)
 {
     int task_id = *((int *) lp);
 
-    printf("Starting Threading %d\n", task_id);
-
 	barrier (task_num);
 
 	if(task_id==0)
@@ -157,7 +155,8 @@ void* work_thread (void *lp)
 
 	barrier (task_num);
 	gettimeofday (&finish, NULL);
-	printf("Ending Threading %d\n", task_id);
+
+	return NULL;
 
 }
 
@@ -287,14 +286,12 @@ void getPivot(int nsize, int currow)
 
 void computeGauss(int nsize, int task_id)
 {
-	printf("Nsize=%i, Task_ID=%i \n", nsize, task_id);
-
     int i, j, k;
     double pivotval;
 
     for (i = 0; i < nsize; i++) { //i is rows
 	/* Scale the main row. */
-		getPivotRowElement(nsize, i, task_id);
+		getPivotRowElement(i);
 		pivotval = PivotRow[i];
 
 		if (pivotval != 1.0) {
