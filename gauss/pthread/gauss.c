@@ -12,7 +12,6 @@
 #include <math.h>
 #include <assert.h>
 #include <pthread.h>
-#include <stdatomic.h>
 
 //#define DEBUG
 
@@ -28,8 +27,8 @@ int nthreads = 1;
 double **matrix, *X, *R;
 
 /* Pre-set solution. */
-//_Atomic int gg = ATOMIC_VAR_INIT(0);
 double *X__;
+double *PivotRow;
 
 /* Initialize the matirx. */
 
@@ -37,21 +36,82 @@ pthread_mutex_t mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutPass = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
-int passer=1;
+void barrier (int expect);
 void getPivot(int nsize, int currow);
+void getPivotRowElement(int nsize, int index, int id);
+void computeGauss(int nsize, int task_id);
+void* work_thread (void *lp);
+void solveGauss(int nsize);
+int initMatrix(const char *fname);
+void initRHS(int nsize);
+void initResult(int nsize);
+
+int main(int argc, char *argv[])
+{
+    int i;
+    double error;
+    pthread_attr_t attr;
+    pthread_t *tid;
+    int *id;
+
+    if (argc > 3) {
+	fprintf(stderr, "usage: %s <matrixfile>\n", argv[1]);
+	exit(-1);
+    }
+
+    nsize = initMatrix(argv[1]);
+
+    if(argc==3)
+    	task_num = atoi(argv[2]);
+
+    initRHS(nsize);
+    initResult(nsize);
+
+    id = (int *) malloc (sizeof (int) * task_num);
+    tid = (pthread_t *) malloc (sizeof (pthread_t) * task_num);
+
+    PivotRow = (double *) malloc(sizeof(double) * nsize);
+
+    for (i = 0; i < nsize; i++) {
+    	PivotRow[i]=0.0;
+     }
+
+    if (!id || !tid){
+		fprintf(stderr, "out of shared memory");
+		exit(-1);
+	}
+
+	pthread_attr_init (&attr);
+	pthread_attr_setscope (&attr, PTHREAD_SCOPE_SYSTEM);
+
+	for (i = 1; i < task_num; i++) {
+		id[i] = i;
+		pthread_create (&tid[i], &attr, work_thread, &id[i]);
+    }
+	id[0]=0;
+	work_thread(&id[0]);
+
+	for (i = 1; i < task_num; i++)
+		pthread_join (tid[i], NULL);
 
 
-void passerToggle(int i){
-	pthread_mutex_lock (&mutPass);	//lock
-	if(passer){
-		getPivot(nsize,i);
-		passer=0;
-	}
-	else{
-		passer=1;
-	}
-	pthread_mutex_unlock (&mutPass);	//unlock
+    solveGauss(nsize);
+
+    fprintf(stdout, "Time:  %f seconds\n", (finish.tv_sec - start.tv_sec) + (finish.tv_usec - start.tv_usec)*0.000001);
+
+    error = 0.0;
+    for (i = 0; i < nsize; i++) {
+	double error__ = (X__[i]==0.0) ? 1.0 : fabs((X[i]-X__[i])/X__[i]);
+	if (error < error__) {
+	    error = error__;
+		}
+    }
+    fprintf(stdout, "Error: %e\n", error);
+
+    return 0;
 }
+
+
 
 void barrier (int expect)
 {
@@ -70,87 +130,35 @@ void barrier (int expect)
     pthread_mutex_unlock (&mut);	//unlock
 }
 
+
+void getPivotRowElement(int npsize, int index, int id){
+	pthread_mutex_lock (&mutPass);
+	if(PivotRow[index]==0.0){
+		getPivot(npsize,index);
+		PivotRow[index]=matrix[index][index];
+	}
+	pthread_mutex_unlock (&mutPass);
+}
+
+
 void* work_thread (void *lp)
 {
     int task_id = *((int *) lp);
 
     printf("Starting Threading %d\n", task_id);
 
-	int i, j, k;
-	double pivotval;
-
 	barrier (task_num);
 
 	if(task_id==0)
 		gettimeofday (&start, NULL);
 
-
-	for (i = 0; i < nsize; i++) {//rows is i
-
-		passerToggle(i);
-
-		pivotval = matrix[i][i];
-//
-
-		if (pivotval != 1.0) {
-			matrix[i][i] = 1.0;
-			//Paralize this loop
-			for (j = task_id + i + 1; j < nsize; j+=task_num) {
-				matrix[i][j] /= pivotval;
-			}
-			R[i] /= pivotval;
-		}
-
-//		if(task_id==0){
-//			if (pivotval != 1.0) {
-//				matrix[i][i] = 1.0;
-//				//Paralize this loop
-//				for (j = i + 1; j < nsize; j+=1) {
-//					matrix[i][j] /= pivotval;
-//				}
-//				R[i] /= pivotval;
-//			}
-//		}
-
-		/* Factorize the rest of the matrix. */
-//		for (j = i + 1; j < nsize; j++) {
-//			pivotval = matrix[j][i];
-//			matrix[j][i] = 0.0;
-//			for (k = task_id + i + 1; k < nsize; k+=task_id+1) {
-//				//Paralized this
-//				matrix[j][k] -= pivotval * matrix[i][k];
-//			}
-//			R[j] -= pivotval * R[i];
-//		}
-
-		if(task_id==0){
-			for (j = i + 1; j < nsize; j++) {
-				pivotval = matrix[j][i];
-				matrix[j][i] = 0.0;
-				for (k = i + 1; k < nsize; k+=1) {
-					//Paralized this
-					matrix[j][k] -= pivotval * matrix[i][k];
-				}
-				R[j] -= pivotval * R[i];
-			}
-		}
-		passerToggle(i);
-	}
+	computeGauss(nsize, task_id);
 
 	barrier (task_num);
-	printf("Ending Threading %d\n", task_id);
 	gettimeofday (&finish, NULL);
-	return NULL;
+	printf("Ending Threading %d\n", task_id);
+
 }
-
-
-//void* threaderFunc(void* arg){
-//	swtich(){
-//
-//
-//
-//	}
-//}
 
 
 int initMatrix(const char *fname)
@@ -190,6 +198,7 @@ int initMatrix(const char *fname)
         for (j = 0; j < nsize; j++) {
             matrix[i][j] = 0.0;
         }
+
     }
 
     /* Parse the rest of the input file to fill the matrix. */
@@ -275,33 +284,57 @@ void getPivot(int nsize, int currow)
 /* For all the rows, get the pivot and eliminate all rows and columns
  * for that particular pivot row. */
 
-void computeGauss(int nsize)
+void computeGauss(int nsize, int task_id)
 {
+	printf("Nsize=%i, Task_ID=%i \n", nsize, task_id);
+
     int i, j, k;
     double pivotval;
 
     for (i = 0; i < nsize; i++) {
-	getPivot(nsize,i);
-
 	/* Scale the main row. */
-        pivotval = matrix[i][i];
-	if (pivotval != 1.0) {
-	    matrix[i][i] = 1.0;
-	    for (j = i + 1; j < nsize; j++) {
-		matrix[i][j] /= pivotval;
-	    }
-	    R[i] /= pivotval;
-	}
+    	barrier (task_num);
+		getPivotRowElement(nsize, i, task_id);
+		pivotval = PivotRow[i];
+
+		if (pivotval != 1.0) {
+			matrix[i][i] = 1.0;
+			for (j = task_id + i + 1; j < nsize; j+=task_num) {
+				matrix[i][j] /= pivotval;
+			}
+			if(task_id==0){
+				R[i] /= pivotval;
+			}
+		}
+
+
+		barrier (task_num);
+		PivotRow[i] = 1.0;
 
 	/* Factorize the rest of the matrix. */
-        for (j = i + 1; j < nsize; j++) {
-            pivotval = matrix[j][i];
-            matrix[j][i] = 0.0;
-            for (k = i + 1; k < nsize; k++) {
-                matrix[j][k] -= pivotval * matrix[i][k];
-            }
-            R[j] -= pivotval * R[i];
-        }
+//        for (j = i + 1; j < nsize; j++) {
+//        	pivotval = matrix[j][i];
+//            matrix[j][i] = 0.0;
+//
+//            barrier (task_num);
+//
+//            for (k = task_id + i + 1; k < nsize; k+=task_num) {
+//                matrix[j][k] -= pivotval * matrix[i][k];
+//            }
+//            R[j] -= pivotval * R[i];
+//        }
+
+		if(task_id==0){
+			for (j = i + 1; j < nsize; j++) {
+				pivotval = matrix[j][i];
+				matrix[j][i] = 0.0;
+				for (k = i + 1; k < nsize; k+=1) {
+					//Paralized this
+					matrix[j][k] -= pivotval * matrix[i][k];
+				}
+				R[j] -= pivotval * R[i];
+			}
+		}
     }
 }
 
@@ -326,64 +359,6 @@ void solveGauss(int nsize)
     }
     fprintf(stdout, "];\n");
 #endif
-}
-
-int main(int argc, char *argv[])
-{
-    int i;
-    double error;
-    pthread_attr_t attr;
-    pthread_t *tid;
-    int *id;
-
-    if (argc > 3) {
-	fprintf(stderr, "usage: %s <matrixfile>\n", argv[1]);
-	exit(-1);
-    }
-
-    nsize = initMatrix(argv[1]);
-
-    if(argc==3)
-    	task_num = atoi(argv[2]);
-
-    initRHS(nsize);
-    initResult(nsize);
-
-    id = (int *) malloc (sizeof (int) * task_num);
-    tid = (pthread_t *) malloc (sizeof (pthread_t) * task_num);
-
-    if (!id || !tid){
-		fprintf(stderr, "out of shared memory");
-		exit(-1);
-	}
-
-	pthread_attr_init (&attr);
-	pthread_attr_setscope (&attr, PTHREAD_SCOPE_SYSTEM);
-
-	for (i = 1; i < task_num; i++) {
-		id[i] = i;
-		pthread_create (&tid[i], &attr, work_thread, &id[i]);
-    }
-	id[0]=0;
-	work_thread(&id[0]);
-
-	for (i = 1; i < task_num; i++)
-		pthread_join (tid[i], NULL);
-
-    solveGauss(nsize);
-
-    fprintf(stdout, "Time:  %f seconds\n", (finish.tv_sec - start.tv_sec) + (finish.tv_usec - start.tv_usec)*0.000001);
-
-    error = 0.0;
-    for (i = 0; i < nsize; i++) {
-	double error__ = (X__[i]==0.0) ? 1.0 : fabs((X[i]-X__[i])/X__[i]);
-	if (error < error__) {
-	    error = error__;
-		}
-    }
-    fprintf(stdout, "Error: %e\n", error);
-
-    return 0;
 }
 
 
