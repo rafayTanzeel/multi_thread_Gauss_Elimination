@@ -30,6 +30,7 @@ double **matrix, *X, *R;
 /* Pre-set solution. */
 double *X__;
 double *PivotRow;
+double *BufferRow;
 int emptier=1;
 /* Initialize the matirx. */
 
@@ -48,6 +49,9 @@ int initMatrix(const char *fname);
 void initRHS(int nsize);
 void initResult(int nsize);
 void emptyMatrix();
+int evenCore(int task_id, int no_cores);
+int oddCore(int task_id, int no_cores);
+
 
 int main(int argc, char *argv[])
 {
@@ -74,9 +78,11 @@ int main(int argc, char *argv[])
     tid = (pthread_t *) malloc (sizeof (pthread_t) * task_num);
 
     PivotRow = (double *) malloc(sizeof(double) * nsize);
+    BufferRow = (double *) malloc(sizeof(double) * nsize);
 
     for (i = 0; i < nsize; i++) {
         PivotRow[i]=0.0;
+        BufferRow[i]=0.0;
      }
 
     if (!id || !tid){
@@ -146,6 +152,21 @@ void getPivotRowElement(int index){
 	}
 }
 
+int evenCore(int task_id, int no_cores){
+	if(task_id%2!=0){
+		return (task_id+1)%no_cores;
+	}
+	return task_id%no_cores;
+}
+
+
+int oddCore(int task_id, int no_cores){
+	if(task_id%2==0){
+		return (task_id+1)%no_cores;
+	}
+	return task_id%no_cores;
+}
+
 
 void* work_thread (void *lp)
 {
@@ -156,7 +177,9 @@ void* work_thread (void *lp)
 
 	cpu_set_t cpuset;
 
-	int cpu=task_id%no_cores;
+	int cpu=evenCore(task_id, no_cores);
+
+	printf("CPU=%d\n",cpu);
 
 	CPU_ZERO(&cpuset);
 	CPU_SET( cpu , &cpuset);
@@ -315,6 +338,7 @@ void computeGauss(int nsize, int task_id)
             matrix[i][i] = 1.0;
             for (j = task_id + i + 1; j < nsize; j+=task_num) { //j is column
                 matrix[i][j] /= pivotval;
+                BufferRow[j]=matrix[j][i];
             }
             if(task_id==0){
                 R[i] /= pivotval;
@@ -323,7 +347,6 @@ void computeGauss(int nsize, int task_id)
 
     /* Factorize the rest of the matrix. */
         for (j = i + 1; j < nsize; j++) {
-
             for (k = task_id + i + 1; k < nsize; k+=task_num) {
                 matrix[j][k] -= matrix[j][i] * matrix[i][k];
             }
