@@ -135,15 +135,15 @@ void barrier (int expect)
 
 
 double getPivotRowElement(int index){
-	if(PivotRow[index]==0.0){
-		pthread_mutex_lock (&mutPass);
-		if(PivotRow[index]==0.0){
-			getPivot(nsize,index);
-			PivotRow[index]=matrix[index][index];
-		}
-		pthread_mutex_unlock (&mutPass);
-	}
-	return PivotRow[index];
+    if(PivotRow[index]==0.0){
+        pthread_mutex_lock (&mutPass);
+        if(PivotRow[index]==0.0){
+            getPivot(nsize,index);
+            PivotRow[index]=matrix[index][index];
+        }
+        pthread_mutex_unlock (&mutPass);
+    }
+    return PivotRow[index];
 }
 
 
@@ -152,18 +152,18 @@ void* work_thread (void *lp)
 
     int task_id = *((int *) lp);
 
-	int no_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    int no_cores = sysconf(_SC_NPROCESSORS_ONLN);
 
-	cpu_set_t cpuset;
+    cpu_set_t cpuset;
 
-	int cpu=task_id%no_cores;
+    int cpu=task_id%no_cores;
 
-	printf("Thread %d running on CPU=%d\n", task_id, cpu);
+    printf("Thread %d running on CPU %d\n", task_id, cpu);
 
-	CPU_ZERO(&cpuset);
-	CPU_SET( cpu , &cpuset);
+    CPU_ZERO(&cpuset);
+    CPU_SET( cpu , &cpuset);
 
-	pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
     barrier (task_num);
 
@@ -338,7 +338,7 @@ void computeGauss(int nsize, int task_id)
 
         barrier (task_num);
         for (j = task_id + i + 1; j < nsize; j+=task_num) {
-        	 matrix[j][i]=0.0;
+             matrix[j][i]=0.0;
         }
     }
 }
