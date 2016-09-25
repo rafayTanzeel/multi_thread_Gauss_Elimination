@@ -41,7 +41,7 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 void barrier (int expect);
 void getPivot(int nsize, int currow);
-void getPivotRowElement(int index);
+double getPivotRowElement(int index);
 void computeGauss(int nsize, int task_id);
 void* work_thread (void *lp);
 void solveGauss(int nsize);
@@ -141,7 +141,7 @@ void barrier (int expect)
 }
 
 
-void getPivotRowElement(int index){
+double getPivotRowElement(int index){
 	if(PivotRow[index]==0.0){
 		pthread_mutex_lock (&mutPass);
 		if(PivotRow[index]==0.0){
@@ -150,6 +150,7 @@ void getPivotRowElement(int index){
 		}
 		pthread_mutex_unlock (&mutPass);
 	}
+	return PivotRow[index];
 }
 
 int evenCore(int task_id, int no_cores){
@@ -177,7 +178,7 @@ void* work_thread (void *lp)
 
 	cpu_set_t cpuset;
 
-	int cpu=evenCore(task_id, no_cores);
+	int cpu=task_id%no_cores;
 
 	printf("CPU=%d\n",cpu);
 
@@ -193,7 +194,7 @@ void* work_thread (void *lp)
 
     computeGauss(nsize, task_id);
 
-    barrier (task_num);
+//    barrier (task_num);
     gettimeofday (&finish, NULL);
 
     return NULL;
@@ -331,8 +332,8 @@ void computeGauss(int nsize, int task_id)
 
     for (i = 0; i < nsize; i++) { //i is rows
     /* Scale the main row. */
-        getPivotRowElement(i);
-        pivotval = PivotRow[i];
+
+        pivotval = getPivotRowElement(i);
 
         if (pivotval != 1.0) {
             matrix[i][i] = 1.0;
@@ -353,7 +354,6 @@ void computeGauss(int nsize, int task_id)
             if (task_id==0) {
                 R[j] -= matrix[j][i] * R[i];
             }
-            //emptyMatrix();
         }
         barrier (task_num);
     }
