@@ -136,12 +136,14 @@ void barrier (int expect)
 
 
 void getPivotRowElement(int index){
-    pthread_mutex_lock (&mutPass);
-    if(PivotRow[index]==0.0){
-        getPivot(nsize,index);
-        PivotRow[index]=matrix[index][index];
-    }
-    pthread_mutex_unlock (&mutPass);
+	if(PivotRow[index]==0.0){
+		pthread_mutex_lock (&mutPass);
+		if(PivotRow[index]==0.0){
+			getPivot(nsize,index);
+			PivotRow[index]=matrix[index][index];
+		}
+		pthread_mutex_unlock (&mutPass);
+	}
 }
 
 
