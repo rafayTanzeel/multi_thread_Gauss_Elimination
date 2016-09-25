@@ -31,12 +31,10 @@ double **matrix, *X, *R;
 double *X__;
 double *PivotRow;
 double *BufferRow;
-int emptier=1;
 /* Initialize the matirx. */
 
 pthread_mutex_t mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutPass = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mutEmpty = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 void barrier (int expect);
@@ -49,9 +47,6 @@ int initMatrix(const char *fname);
 void initRHS(int nsize);
 void initResult(int nsize);
 void emptyMatrix();
-int evenCore(int task_id, int no_cores);
-int oddCore(int task_id, int no_cores);
-int amoebaCore(int task_id, int no_cores);
 
 int main(int argc, char *argv[])
 {
@@ -103,8 +98,6 @@ int main(int argc, char *argv[])
     for (i = 1; i < task_num; i++)
         pthread_join (tid[i], NULL);
 
-    emptyMatrix();
-
     solveGauss(nsize);
 
     fprintf(stdout, "Time:  %f seconds\n", (finish.tv_sec - start.tv_sec) + (finish.tv_usec - start.tv_usec)*0.000001);
@@ -153,36 +146,6 @@ double getPivotRowElement(int index){
 	return PivotRow[index];
 }
 
-int evenCore(int task_id, int no_cores){
-	if(task_id%2!=0){
-		return (task_id+1)%no_cores;
-	}
-	return task_id%no_cores;
-}
-
-
-int oddCore(int task_id, int no_cores){
-	if(task_id%2==0){
-		return (task_id+1)%no_cores;
-	}
-	return task_id%no_cores;
-}
-
-int amoebaCore(int task_id, int no_cores){
-    int even[12] = {0,2,4,6,8,10,12,14,16,18,20,22};
-    int odd[12] = {1,3,5,7,9,11,13,15,17,19,21,23};
-    int tid = task_id%no_cores;
-    if (tid < 12) {
-        return even[tid];
-    }
-    else if (tid < 24) {
-        return odd[tid-12];
-    }
-    else {
-        return -1;
-    }
-}
-
 
 void* work_thread (void *lp)
 {
@@ -195,7 +158,7 @@ void* work_thread (void *lp)
 
 	int cpu=task_id%no_cores;
 
-	printf("CPU=%d\n",cpu);
+	printf("Thread %d running on CPU=%d\n", task_id, cpu);
 
 	CPU_ZERO(&cpuset);
 	CPU_SET( cpu , &cpuset);
@@ -209,7 +172,7 @@ void* work_thread (void *lp)
 
     computeGauss(nsize, task_id);
 
-//    barrier (task_num);
+//  The Last Statement from computeGauss will be a Barrier
     gettimeofday (&finish, NULL);
 
     return NULL;
@@ -362,6 +325,7 @@ void computeGauss(int nsize, int task_id)
         }
 
     /* Factorize the rest of the matrix. */
+
         for (j = i + 1; j < nsize; j++) {
             for (k = task_id + i + 1; k < nsize; k+=task_num) {
                 matrix[j][k] -= matrix[j][i] * matrix[i][k];
@@ -369,16 +333,12 @@ void computeGauss(int nsize, int task_id)
             if (task_id==0) {
                 R[j] -= matrix[j][i] * R[i];
             }
+//            matrix[j][i]=0.0;
         }
-        barrier (task_num);
-    }
-}
 
-void emptyMatrix() {
-    int i, j;
-    for (i = 0; i < nsize; i++) {
-        for (j = i + 1; j < nsize; j++) {
-            matrix[j][i] = 0.0;
+        barrier (task_num);
+        for (j = task_id + i + 1; j < nsize; j+=task_num) {
+        	 matrix[j][i]=0.0;
         }
     }
 }
