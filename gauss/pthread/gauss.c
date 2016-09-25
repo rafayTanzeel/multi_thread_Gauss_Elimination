@@ -154,12 +154,12 @@ void* work_thread (void *lp)
 
 	cpu_set_t cpuset;
 
-	int cpu=(task_id+1)%(no_cores+1);
+	int cpu=task_id%no_cores;
 
 	CPU_ZERO(&cpuset);
 	CPU_SET( cpu , &cpuset);
 
-	sched_setaffinity(0, sizeof(cpuset), &cpuset);
+	pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
     barrier (task_num);
 
