@@ -51,7 +51,7 @@ void initResult(int nsize);
 void emptyMatrix();
 int evenCore(int task_id, int no_cores);
 int oddCore(int task_id, int no_cores);
-
+int amoebaCore(int task_id, int no_cores);
 
 int main(int argc, char *argv[])
 {
@@ -166,6 +166,21 @@ int oddCore(int task_id, int no_cores){
 		return (task_id+1)%no_cores;
 	}
 	return task_id%no_cores;
+}
+
+int amoebaCore(int task_id, int no_cores){
+    int even[12] = {0,2,4,6,8,10,12,14,16,18,20,22};
+    int odd[12] = {1,3,5,7,9,11,13,15,17,19,21,23};
+    int tid = task_id%no_cores;
+    if (tid < 12) {
+        return even[tid];
+    }
+    else if (tid < 24) {
+        return odd[tid-12];
+    }
+    else {
+        return -1;
+    }
 }
 
 
