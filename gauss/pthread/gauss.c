@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <math.h>
+#include <string.h>
 #include <assert.h>
 #include <sched.h>
 #include <pthread.h>
@@ -23,6 +24,7 @@
  */
 struct timeval start, finish;
 int task_num = 1;
+char* method = "-m1";
 int nsize = 0;
 int nthreads = 1;
 double **matrix, *X, *R;
@@ -30,7 +32,6 @@ double **matrix, *X, *R;
 /* Pre-set solution. */
 double *X__;
 double *PivotRow;
-double *BufferRow;
 /* Initialize the matirx. */
 
 pthread_mutex_t mut = PTHREAD_MUTEX_INITIALIZER;
@@ -40,13 +41,14 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 void barrier (int expect);
 void getPivot(int nsize, int currow);
 double getPivotRowElement(int index);
-void computeGauss(int nsize, int task_id);
+void computeGaussMethod1(int nsize, int task_id, int block);
+void computeGaussMethod2(int nsize, int task_id, int block);
+void computeGaussMethod3(int nsize, int task_id, int block);
 void* work_thread (void *lp);
 void solveGauss(int nsize);
 int initMatrix(const char *fname);
 void initRHS(int nsize);
 void initResult(int nsize);
-void emptyMatrix();
 
 int main(int argc, char *argv[])
 {
@@ -56,15 +58,17 @@ int main(int argc, char *argv[])
     pthread_t *tid;
     int *id;
 
-    if (argc > 3) {
-    fprintf(stderr, "usage: %s <matrixfile>\n", argv[1]);
-    exit(-1);
+    if (argc != 4) {
+		fprintf(stderr, "usage: %s <matrixfile> <noOfThreads> <method>\n", argv[1]);
+		exit(-1);
     }
 
     nsize = initMatrix(argv[1]);
 
-    if(argc==3)
-        task_num = atoi(argv[2]);
+
+    method = argv[3];
+
+    task_num = atoi(argv[2]);
 
     initRHS(nsize);
     initResult(nsize);
@@ -73,11 +77,9 @@ int main(int argc, char *argv[])
     tid = (pthread_t *) malloc (sizeof (pthread_t) * task_num);
 
     PivotRow = (double *) malloc(sizeof(double) * nsize);
-    BufferRow = (double *) malloc(sizeof(double) * nsize);
 
     for (i = 0; i < nsize; i++) {
         PivotRow[i]=0.0;
-        BufferRow[i]=0.0;
      }
 
     if (!id || !tid){
@@ -165,12 +167,32 @@ void* work_thread (void *lp)
 
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
+    int block = nsize/task_num;
+
+    int (*computePtr)(int,int,int);
+    computePtr=&computeGaussMethod1;
+
+    if(strncmp(method,"-m1",3)==0){
+    	computePtr=&computeGaussMethod1;
+    }
+    else if(strncmp(method,"-m2",3)==0){
+    	computePtr=&computeGaussMethod2;
+    }
+    else if(strncmp(method,"-m3",3)==0){
+    	computePtr=&computeGaussMethod3;
+    	block = block/sqrt(block);
+     }
+    else{
+    	fprintf(stderr, "Method not found\n");
+    	exit(-1);
+    }
+
     barrier (task_num);
 
     if(task_id==0)
         gettimeofday (&start, NULL);
 
-    computeGauss(nsize, task_id);
+    (*computePtr)(nsize, task_id, block);
 
 //  The Last Statement from computeGauss will be a Barrier
     gettimeofday (&finish, NULL);
@@ -303,7 +325,53 @@ void getPivot(int nsize, int currow)
 /* For all the rows, get the pivot and eliminate all rows and columns
  * for that particular pivot row. */
 
-void computeGauss(int nsize, int task_id)
+void computeGaussMethod1(int nsize, int task_id, int block)
+{
+    int i, j, k;
+    double pivotval;
+
+    for (i = 0; i < nsize; i++) { //i is rows
+    /* Scale the main row. */
+		 block = (nsize-i)/task_num;
+		 int left_over=nsize-block*task_num;
+		 pivotval = getPivotRowElement(i);
+
+        if (pivotval != 1.0) {
+            matrix[i][i] = 1.0;
+            for (j = task_id*block+ 1; j < task_id*block + block + 1; j++) { //j is column
+                matrix[i][j] /= pivotval;
+            }
+            if(task_id==0){
+                R[i] /= pivotval;
+            }
+        }
+
+        if(task_id==task_num-1){
+			for (j = task_id*block+block+1; j < task_id*block+block+left_over; j++) {
+				matrix[i][j] /= pivotval;
+			}
+		}
+
+    /* Factorize the rest of the matrix. */
+        barrier (task_num);
+
+        for (j = i + 1; j < nsize; j++) {
+            for (k = task_id + i + 1; k < nsize; k+=task_num) {
+                matrix[j][k] -= matrix[j][i] * matrix[i][k];
+            }
+            if (task_id==0) {
+                R[j] -= matrix[j][i] * R[i];
+            }
+        }
+
+        barrier (task_num);
+        for (j = task_id + i + 1; j < nsize; j+=task_num) {
+             matrix[j][i]=0.0;
+        }
+    }
+}
+
+void computeGaussMethod2(int nsize, int task_id, int block)
 {
     int i, j, k;
     double pivotval;
@@ -317,7 +385,6 @@ void computeGauss(int nsize, int task_id)
             matrix[i][i] = 1.0;
             for (j = task_id + i + 1; j < nsize; j+=task_num) { //j is column
                 matrix[i][j] /= pivotval;
-                BufferRow[j]=matrix[j][i];
             }
             if(task_id==0){
                 R[i] /= pivotval;
@@ -340,6 +407,51 @@ void computeGauss(int nsize, int task_id)
         for (j = task_id + i + 1; j < nsize; j+=task_num) {
              matrix[j][i]=0.0;
         }
+    }
+}
+
+
+
+
+void computeGaussMethod3(int nsize, int task_id, int block)
+{
+    int i, j, k;
+    double pivotval;
+
+    for (i = 0; i < nsize; i++) { //i is rows
+    /* Scale the main row. */
+		 int left_over=nsize-block*task_num;
+		 pivotval = getPivotRowElement(i);
+
+        if (pivotval != 1.0) {
+            matrix[i][i] = 1.0;
+            for (j = task_id*block+block+left_over; j < task_id*block + block + 1; j++) { //j is column
+                matrix[i][j] /= pivotval;
+            }
+            if(task_id==0){
+                R[i] /= pivotval;
+            }
+        }
+
+        if(task_id==task_num-1){
+			for (j = task_id*block+block+1; j < task_id*block+block+left_over; j++) {
+				matrix[i][j] /= pivotval;
+			}
+		}
+
+    /* Factorize the rest of the matrix. */
+        barrier (task_num);
+
+        for (j = i + 1; j < nsize; j++) {
+            for (k = task_id + i + 1; k < nsize; k+=task_num) {
+                matrix[j][k] -= matrix[j][i] * matrix[i][k];
+            }
+            if (task_id==0) {
+                R[j] -= matrix[j][i] * R[i];
+            }
+        }
+
+        barrier (task_num);
     }
 }
 
