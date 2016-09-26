@@ -58,15 +58,17 @@ int main(int argc, char *argv[])
     pthread_t *tid;
     int *id;
 
-    if (argc != 4) {
-		fprintf(stderr, "usage: %s <matrixfile> <noOfThreads> <method>\n", argv[1]);
+    if (argc > 4) {
+		fprintf(stderr, "usage: %s <matrixfile> <noOfThreads> optional(<method>)\n", argv[1]);
 		exit(-1);
     }
 
     nsize = initMatrix(argv[1]);
 
-
-    method = argv[3];
+    if(argv[3]!=NULL){
+	method = argv[3];
+    }
+    
 
     task_num = atoi(argv[2]);
 
