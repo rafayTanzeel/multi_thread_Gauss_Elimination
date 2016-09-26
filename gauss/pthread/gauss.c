@@ -182,7 +182,7 @@ void* work_thread (void *lp)
     }
     else if(strncmp(method,"-m3",3)==0){
     	computePtr=&computeGaussMethod3;
-    	block = block/sqrt(block);
+    	block = sqrt(block);
      }
     else{
     	fprintf(stderr, "Method not found\n");
@@ -335,7 +335,6 @@ void computeGaussMethod1(int nsize, int task_id, int block)
     for (i = 0; i < nsize; i++) { //i is rows
     /* Scale the main row. */
 		 block = (nsize-i)/task_num;
-		 int left_over=nsize-block*task_num;
 		 pivotval = getPivotRowElement(i);
 
         if (pivotval != 1.0) {
@@ -348,10 +347,8 @@ void computeGaussMethod1(int nsize, int task_id, int block)
             }
         }
 
-        if(task_id==task_num-1){
-			for (j = task_id*block+block+1; j < task_id*block+block+left_over; j++) {
-				matrix[i][j] /= pivotval;
-			}
+		for (j = task_id+block*task_num+1; j < nsize; j+=task_num) {
+			matrix[i][j] /= pivotval;
 		}
 
     /* Factorize the rest of the matrix. */
@@ -374,6 +371,7 @@ void computeGaussMethod2(int nsize, int task_id, int block)
 {
     int i, j, k;
     double pivotval;
+
 
     for (i = 0; i < nsize; i++) { //i is rows
     /* Scale the main row. */
@@ -399,7 +397,6 @@ void computeGaussMethod2(int nsize, int task_id, int block)
             if (task_id==0) {
                 R[j] -= matrix[j][i] * R[i];
             }
-//            matrix[j][i]=0.0;
         }
 
         barrier (task_num);
@@ -417,26 +414,30 @@ void computeGaussMethod3(int nsize, int task_id, int block)
     int i, j, k;
     double pivotval;
 
+    int fullsizeblock=nsize/(block*task_num);
+
     for (i = 0; i < nsize; i++) { //i is rows
     /* Scale the main row. */
-		 int left_over=nsize-block*task_num;
+
 		 pivotval = getPivotRowElement(i);
 
         if (pivotval != 1.0) {
             matrix[i][i] = 1.0;
-            for (j = task_id*block+block+left_over; j < task_id*block + block + 1; j++) { //j is column
-                matrix[i][j] /= pivotval;
+            for (int s=0; s<fullsizeblock*block*task_num; s+=task_num*block){
+				for (j = task_id*block+1+s; j < task_id*block + block + 1+s; j++) { //j is column
+					matrix[i][j] /= pivotval;
+				}
             }
             if(task_id==0){
                 R[i] /= pivotval;
             }
         }
 
-        if(task_id==task_num-1){
-			for (j = task_id*block+block+1; j < task_id*block+block+left_over; j++) {
-				matrix[i][j] /= pivotval;
-			}
+
+		for (j = task_id + fullsizeblock*block*task_num+1; j < nsize; j+=task_num) {
+			matrix[i][j] /= pivotval;
 		}
+
 
     /* Factorize the rest of the matrix. */
         barrier (task_num);
