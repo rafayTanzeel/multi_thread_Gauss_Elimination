@@ -1,7 +1,7 @@
 all: gauss
 
 CC = gcc
-CCFLAGS = -g -Wall -O3
+CCFLAGS = -g -Wall -O3 -std=c11
 LDFLAGS = -g -Wall -O3
 LFLAGS = -lm -lpthread
 
