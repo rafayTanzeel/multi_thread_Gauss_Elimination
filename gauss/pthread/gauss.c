@@ -100,6 +100,8 @@ int main(int argc, char *argv[])
     for (i = 1; i < task_num; i++)
         pthread_join (tid[i], NULL);
 
+    free(PivotRow);
+
     solveGauss(nsize);
 
     fprintf(stdout, "Time:  %f seconds\n", (finish.tv_sec - start.tv_sec) + (finish.tv_usec - start.tv_usec)*0.000001);
@@ -365,9 +367,6 @@ void computeGaussMethod1(int nsize, int task_id, int block)
         }
 
         barrier (task_num);
-        for (j = task_id + i + 1; j < nsize; j+=task_num) {
-             matrix[j][i]=0.0;
-        }
     }
 }
 
